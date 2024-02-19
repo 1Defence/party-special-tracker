@@ -380,6 +380,10 @@ public class PartySpecialTrackerPlugin extends Plugin
 	@Subscribe
 	public void onVarbitChanged(VarbitChanged event)
 	{
+		//special is set to 0 on these states, disregard this information
+		if(client.getGameState() == GameState.LOGGING_IN || client.getGameState() == GameState.HOPPING)
+			return;
+
 		if (event.getVarpId() != VarPlayer.SPECIAL_ATTACK_PERCENT)
 			return;
 
