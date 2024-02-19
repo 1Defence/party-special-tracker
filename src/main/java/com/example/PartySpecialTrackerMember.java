@@ -46,8 +46,20 @@ class PartySpecialTrackerMember
         this.ticksSinceDrain = -1;
     }
 
-    public int IncrementTicksSinceDrain(){
-        return ++this.ticksSinceDrain;
+    public int IncrementTicksSinceDrain(int maxTicks){
+        //increment count, disable if surpassed maximum.
+        if(++this.ticksSinceDrain > maxTicks){
+            this.ticksSinceDrain = -1;
+        }
+        return ticksSinceDrain;
+    }
+
+    public boolean IsTrackingDrain(){
+        return ticksSinceDrain != -1;
+    }
+
+    public void StartTrackingDrain(){
+        ticksSinceDrain = 1;
     }
 
 

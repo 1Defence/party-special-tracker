@@ -31,10 +31,6 @@ import net.runelite.client.party.messages.PartyMemberMessage;
 
 @Value
 @EqualsAndHashCode(callSuper = true)
-public class PartySpecialTrackerUpdate extends PartyMemberMessage
+public class PartySpecialTrackerStopTracking extends PartyMemberMessage
 {
-    //we need realtime info, default party is delayed.
-    int currentSpecial;
-    //indicates special change was a drain not a regen.
-    boolean usedSpecial;
 }

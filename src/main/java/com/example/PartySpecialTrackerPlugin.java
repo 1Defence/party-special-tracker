@@ -45,7 +45,6 @@ import net.runelite.client.events.ConfigChanged;
 import net.runelite.client.events.PartyChanged;
 
 import net.runelite.client.events.RuneScapeProfileChanged;
-import net.runelite.client.game.SpriteManager;
 import net.runelite.client.party.WSClient;
 import net.runelite.client.party.events.UserJoin;
 import net.runelite.client.party.events.UserPart;
@@ -103,6 +102,10 @@ public class PartySpecialTrackerPlugin extends Plugin
 	@Setter(AccessLevel.PACKAGE)
 	private boolean queuedUpdate = false;
 
+	@Getter(AccessLevel.PACKAGE)
+	@Setter(AccessLevel.PACKAGE)
+	private boolean usedSpecial = false;
+
 	/**
 	 * Visible players from the configuration (Strings)
 	 */
@@ -150,23 +153,32 @@ public class PartySpecialTrackerPlugin extends Plugin
 		overlayManager.add(partySpecialTrackerOverlay);
 		lastKnownSpecial = client.getLocalPlayer() != null ? (client.getVarpValue(VarPlayer.SPECIAL_ATTACK_PERCENT) / 10) : -1;
 		queuedUpdate = true;
+		usedSpecial = false;
 		wsClient.registerMessage(PartySpecialTrackerUpdate.class);
+		wsClient.registerMessage(PartySpecialTrackerStopTracking.class);
 	}
 
 	@Override
 	protected void shutDown()
 	{
 		wsClient.unregisterMessage(PartySpecialTrackerUpdate.class);
+		wsClient.unregisterMessage(PartySpecialTrackerStopTracking.class);
 		overlayManager.remove(partySpecialTrackerOverlay);
 		members.clear();
 	}
 
+	/**
+	 * Local player has left party or joined a new one, flush existing list of members.
+	 */
 	@Subscribe
 	public void onPartyChanged(PartyChanged partyChanged)
 	{
 		members.clear();
 	}
 
+	/**
+	 * Member has joined local party, send them our information to sync them up
+	 */
 	@Subscribe
 	public void onUserJoin(final UserJoin message)
 	{
@@ -174,12 +186,18 @@ public class PartySpecialTrackerPlugin extends Plugin
 		queuedUpdate = true;
 	}
 
+	/**
+	 * local player has changed, requests an update
+	 */
 	@Subscribe
 	public void onRuneScapeProfileChanged(RuneScapeProfileChanged runeScapeProfileChanged)
 	{
 		queuedUpdate = true;
 	}
 
+	/**
+	 * A member has left the party, remove them from the list of tracked players
+	 */
 	@Subscribe
 	public void onUserPart(final UserPart message)
 	{
@@ -195,38 +213,13 @@ public class PartySpecialTrackerPlugin extends Plugin
 		}
 	}
 
-
-	void RegisterMember(long memberID, String memberName, int currentSpecial)
+	/**
+	 * Parse config list of player names and convert into a list of strings.<br>
+	 * Used to determine which tracked players you want to see.
+	 */
+	public List<String> parseVisiblePlayers()
 	{
-		if(memberName.equals(DEFAULT_MEMBER_NAME))
-		{
-			return;
-		}
-
-		if(currentSpecial == -1){
-			//stop tracking on impossible -1, rather than sending a separate packet.
-			members.remove(memberName);
-			return;
-		}
-
-		if(members.containsKey(memberName))
-		{
-			PartySpecialTrackerMember member = members.get(memberName);
-			if(currentSpecial < member.getCurrentSpecial())
-			{
-				members.get(memberName).setTicksSinceDrain(0);
-			}
-			member.setMemberID(memberID);
-			member.setCurrentSpecial(currentSpecial);
-		}else{
-			members.put(memberName, new PartySpecialTrackerMember(memberName, memberID, currentSpecial));
-		}
-	}
-
-
-	public List<String> parsePlayerList(String playerList)
-	{
-		final String configPlayers = playerList.toLowerCase();
+		final String configPlayers = config.getVisiblePlayers().toLowerCase();
 
 		if (configPlayers.isEmpty())
 		{
@@ -236,13 +229,9 @@ public class PartySpecialTrackerPlugin extends Plugin
 		return Text.fromCSV(configPlayers);
 	}
 
-
-	public List<String> parseVisiblePlayers()
-	{
-		return parsePlayerList(config.getVisiblePlayers());
-	}
-
-
+	/**
+	 * Update Cache and additionally check if a players tracking has changed.
+	 */
 	@Subscribe
 	public void onConfigChanged(ConfigChanged configChanged)
 	{
@@ -257,19 +246,22 @@ public class PartySpecialTrackerPlugin extends Plugin
 			if(trackMe){
 				queuedUpdate = true;
 			}
-			else if (client.getLocalPlayer() != null && partyService.isInParty() && partyService.getLocalMember() != null)
+			else if (IsValidAndInParty())
 			{
 				//player has turned off tracking, tell other party members to remove them rather than rendering a non-updating party member.
-				String currentLocalUsername = SanitizeName(client.getLocalPlayer().getName());
+				String currentLocalUsername = GetLocalPlayerName();
 				if(members.containsKey(currentLocalUsername))
 				{
-					SendUpdate(currentLocalUsername, -1);
+					SendStopTracking(currentLocalUsername);
 				}
 			}
 		}
 
 	}
 
+	/**
+	 * Cache config values to reduce extensive checking
+	 */
 	public void CacheConfigs()
 	{
 
@@ -296,95 +288,223 @@ public class PartySpecialTrackerPlugin extends Plugin
 		visiblePlayers = parseVisiblePlayers();
 	}
 
-
+	/**
+	 * Received packet from party member.<br>
+	 * Run checks and attempt to update the given player in list of party members.<br>
+	 * The local player handles itself  to reduce latency.
+	 */
 	@Subscribe
-	public void onPartySpecialTrackerUpdate(PartySpecialTrackerUpdate update)
+	public void onPartySpecialTrackerUpdate(PartySpecialTrackerUpdate packet)
 	{
 
-		if (partyService.getLocalMember().getMemberId() == update.getMemberId())
+		if (partyService.getLocalMember().getMemberId() == packet.getMemberId())
 		{
 			return;
 		}
 
-		String name = partyService.getMemberById(update.getMemberId()).getDisplayName();
+		String name = partyService.getMemberById(packet.getMemberId()).getDisplayName();
 		if (name == null)
 		{
 			return;
 		}
 
-		RegisterMember(update.getMemberId(),name,update.getCurrentSpecial());
+		UpdateMember(name,packet);
 	}
 
+	/**
+	 * Received packet from party member to stop tracking it.<br>
+	 * The local player handles itself  to reduce latency.
+	 */
+	@Subscribe
+	public void onPartySpecialTrackerStopTracking(PartySpecialTrackerStopTracking packet)
+	{
 
+		if (partyService.getLocalMember().getMemberId() == packet.getMemberId())
+		{
+			return;
+		}
+
+		String name = partyService.getMemberById(packet.getMemberId()).getDisplayName();
+		if (name == null)
+		{
+			return;
+		}
+
+		members.remove(name);
+	}
+
+	/**
+	 * Increment active tick timers and send packet of local players special data to all party members
+	 */
 	@Subscribe
 	public void onGameTick(GameTick event)
 	{
-		//an update has been requested, resync special
-		if (trackMe && queuedUpdate && lastKnownSpecial > -1 && client.getLocalPlayer() != null && partyService.isInParty() && partyService.getLocalMember() != null)
+		//increment members with active ticks
+		for (PartySpecialTrackerMember member : members.values())
 		{
-			String currentLocalUsername = SanitizeName(client.getLocalPlayer().getName());
+			if(!member.IsTrackingDrain())
+				continue;
+			member.IncrementTicksSinceDrain(tickDisplay);
+		}
+
+		//Check for local player update
+		if(!queuedUpdate)
+			return;
+
+		//an update has been requested, resync special
+		if (trackMe && IsValidAndInParty())
+		{
+			String currentLocalUsername = GetLocalPlayerName();
 			String partyName = partyService.getMemberById(partyService.getLocalMember().getMemberId()).getDisplayName();
 			//dont send unless the partyname has updated to the local name
 			if (currentLocalUsername != null && currentLocalUsername.equals(partyName))
 			{
+				SendUpdate(currentLocalUsername, lastKnownSpecial, usedSpecial);
 				queuedUpdate = false;
-				SendUpdate(currentLocalUsername, lastKnownSpecial);
-			}
-		}
-
-		for (PartySpecialTrackerMember member : members.values())
-		{
-			if(member.getTicksSinceDrain() == -1)
-				continue;
-			if(member.IncrementTicksSinceDrain() > tickDisplay)
-			{
-				member.setTicksSinceDrain(-1);
+				usedSpecial = false;
 			}
 		}
 
 	}
+
+	/**
+	 * Watch special change events to request an update packet in the game tick
+	 */
 	@Subscribe
 	public void onVarbitChanged(VarbitChanged event)
 	{
 		if (event.getVarpId() != VarPlayer.SPECIAL_ATTACK_PERCENT)
-		{
 			return;
+
+		/*
+		*fringe case where special changes numerous times in the same game tick
+		*occurs when player receives energy transfer on the same tick that they use their special attack.
+		*use of spec needs to be calculated locally as opposed to checking spec diff on update
+		*/
+
+		int currentSpecial = event.getValue()/10;
+		if(currentSpecial < lastKnownSpecial)
+		{
+			usedSpecial = true;
 		}
-		lastKnownSpecial = event.getValue()/10;
+		lastKnownSpecial = currentSpecial;
 		queuedUpdate = true;
 	}
 
-	public void SendUpdate(String name, int currentSpecial)
+	/**
+	 * Send a packet containing the new special data to all party members.
+	 * @param name Local players sanitized name
+	 * @param currentSpecial Special value after change
+	 * @param usedSpecial Flag indicating a special has been used, to differentiate between regen and drain
+	 */
+	public void SendUpdate(String name, int currentSpecial, boolean usedSpecial)
 	{
 		if(partyService.getLocalMember() != null)
 		{
-			partyService.send(new PartySpecialTrackerUpdate(currentSpecial));
+			PartySpecialTrackerUpdate packet = new PartySpecialTrackerUpdate(currentSpecial,usedSpecial);
+			partyService.send(packet);
 			//handle self locally.
-			RegisterMember(partyService.getLocalMember().getMemberId(),name,currentSpecial);
+			UpdateMember(name,packet);
 		}
 	}
 
+	/**
+	 * Updates or adds player to the map of tracked party members. Only players opting in to be tracked will be within this list.
+	 * @param memberName Party member name, this is a sanitized Jagex name.
+	 * @param update Packet containing special amount and flag of special use
+	 */
+	void UpdateMember(String memberName, PartySpecialTrackerUpdate update)
+	{
+		if(memberName.equals(DEFAULT_MEMBER_NAME))
+		{
+			return;
+		}
+
+		int currentSpecial = update.getCurrentSpecial();
+		long memberID = update.getMemberId();
+		boolean usedSpecial = update.isUsedSpecial();
+
+		if(members.containsKey(memberName))
+		{
+			PartySpecialTrackerMember member = members.get(memberName);
+			member.setMemberID(memberID);
+			member.setCurrentSpecial(currentSpecial);
+		}else{
+			members.put(memberName, new PartySpecialTrackerMember(memberName, memberID, currentSpecial));
+		}
+
+		if(usedSpecial)
+		{
+			members.get(memberName).StartTrackingDrain();
+		}
+
+	}
+
+	/**
+	 * Send a packet informing all party members to stop tracking this local player.
+	 * @param name Local players sanitized name
+	 */
+	public void SendStopTracking(String name)
+	{
+		if(partyService.getLocalMember() != null)
+		{
+			PartySpecialTrackerStopTracking packet = new PartySpecialTrackerStopTracking();
+			partyService.send(packet);
+			//handle self locally.
+			members.remove(name);
+		}
+	}
+
+	/**
+	 * Remove tags and convert to Jagex name
+	 * @param name Local players raw name
+	 */
 	String SanitizeName(String name)
 	{
 		return Text.removeTags(Text.toJagexName(name));
 	}
 
-	public boolean RenderText(TextRenderType textRenderType, boolean healthy)
+	/**
+	 * Get sanitized name of the local player
+	 */
+	String GetLocalPlayerName(){
+		return SanitizeName(client.getLocalPlayer().getName());
+	}
+
+	/**
+	 * Check if text should be rendered based on player-chosen configs
+	 * @param textRenderType The chosen style of text rendering
+	 * @param hasDesiredSpecial Flag indicating the current special value surpasses player-chosen config
+	 */
+	public boolean RenderText(TextRenderType textRenderType, boolean hasDesiredSpecial)
 	{
 		if(textRenderType == TextRenderType.NEVER)
 			return false;
 		return textRenderType == TextRenderType.ALWAYS
-				|| (textRenderType == TextRenderType.WHEN_MISSING_SPEC && !healthy);
+				|| (textRenderType == TextRenderType.WHEN_MISSING_SPEC && !hasDesiredSpecial);
 	}
 
-	public boolean HasDesiredSpecial(int currentSpecial){ return currentSpecial >= desiredSpecial; }
+	/**
+	 * Check if a special value surpasses player-chosen config
+	 * @param specialValue Current special of a given party member
+	 */
+	public boolean HasDesiredSpecial(int specialValue){ return specialValue >= desiredSpecial; }
 
+	/**
+	 * Check if a given player should be rendered
+	 * @param sanitizedName see {@link #SanitizeName(String)}
+	 */
 	boolean RenderPlayer(String sanitizedName)
 	{
 		if(!members.containsKey(sanitizedName))
 			return false;
 		return visiblePlayers.isEmpty() || visiblePlayers.contains(sanitizedName.toLowerCase());
 	}
+
+	/**
+	 * Ensure local player is valid and currently in a party
+	 */
+	Boolean IsValidAndInParty(){ return (client.getLocalPlayer() != null && partyService.isInParty() && partyService.getLocalMember() != null);}
 
 
 }

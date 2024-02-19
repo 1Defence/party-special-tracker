@@ -53,6 +53,10 @@ public class PartySpecialTrackerOverlay extends Overlay
         setLayer(OverlayLayer.UNDER_WIDGETS);
     }
 
+    /**
+     * Renders tracked party members special amount.<br>
+     * Additionally, displays ticks since special has drained if present
+     */
     @Override
     public Dimension render(Graphics2D graphics)
     {
@@ -104,13 +108,20 @@ public class PartySpecialTrackerOverlay extends Overlay
                 renderPlayerOverlay(graphics, player, playersTracked,currentSpecial,ticksSinceDrain,hasDesiredSpecial);
             }
 
-
-
         }
 
         return null;
     }
 
+    /**
+     * Calculates the display of a given party member based on current data and config values.
+     * @param graphics
+     * @param actor The party member to draw visuals for
+     * @param playersTracked The number of players on the same tile of actor
+     * @param currentSpecial The current tracked special amount
+     * @param ticksSinceDrain The ticks since special drained
+     * @param hasDesiredSpecial Indicates currentSpecial Surpasses config
+     */
     private void renderPlayerOverlay(Graphics2D graphics, Player actor, int playersTracked, int currentSpecial, int ticksSinceDrain, boolean hasDesiredSpecial)
     {
         Color color = hasDesiredSpecial ? plugin.standardColor : plugin.lowColor;
@@ -135,6 +146,11 @@ public class PartySpecialTrackerOverlay extends Overlay
 
     }
 
+    /**
+     * Modified version of {@link net.runelite.client.ui.overlay.OverlayUtil#renderTextLocation(Graphics2D, Point, String, Color)} <br>
+     * Draws an initial string with the special value, followed by drawing a string of the ticks since special drain.<br>
+     * Used to draw left to right rather than being centered, maintains value location whether or not ticks are currently displayed.
+     */
     public static void RenderSpecialText(Graphics2D graphics, Point txtLoc, String specialValueText, String ticksSinceSpecialText, Color color) {
 
         int x = txtLoc.getX();
