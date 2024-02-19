@@ -47,8 +47,8 @@ class PartySpecialTrackerMember
     }
 
     public int IncrementTicksSinceDrain(int maxTicks){
-        //increment count, disable if surpassed maximum.
-        if(++this.ticksSinceDrain > maxTicks){
+        //increment count, disable after an additional lingering tick for fadeout purposes.
+        if(++this.ticksSinceDrain > (maxTicks+1)){
             this.ticksSinceDrain = -1;
         }
         return ticksSinceDrain;

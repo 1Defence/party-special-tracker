@@ -132,7 +132,8 @@ public class PartySpecialTrackerOverlay extends Overlay
         String endingParenthesesString = plugin.drawParentheses ? ")" : "";
 
         playerName += plugin.RenderText(plugin.specRender,hasDesiredSpecial) ? " "+(startingParenthesesString+currentSpecial+endingPercentString+endingParenthesesString) : "";
-        String tickDisplayString = ticksSinceDrain > -1 ? " 🗲"+ticksSinceDrain  : "";
+        boolean lingeringTick = (ticksSinceDrain == (plugin.tickDisplay+1));
+        String tickDisplayString = ticksSinceDrain > -1 ? " 🗲"+Math.min(ticksSinceDrain,plugin.tickDisplay)  : "";
 
         Point textLocation = actor.getCanvasTextLocation(graphics, playerName, plugin.offSetTextZ);
 
@@ -141,7 +142,7 @@ public class PartySpecialTrackerOverlay extends Overlay
         if(textLocation != null)
         {
             textLocation = new Point(textLocation.getX()+ plugin.offSetTextHorizontal, (-plugin.offSetTextVertical)+(int) (textLocation.getY() * verticalOffSetMultiplier));
-            RenderSpecialText(graphics, textLocation, playerName, tickDisplayString, color);
+            RenderSpecialText(graphics, textLocation, playerName, tickDisplayString, color,lingeringTick);
         }
 
     }
@@ -151,7 +152,7 @@ public class PartySpecialTrackerOverlay extends Overlay
      * Draws an initial string with the special value, followed by drawing a string of the ticks since special drain.<br>
      * Used to draw left to right rather than being centered, maintains value location whether or not ticks are currently displayed.
      */
-    public static void RenderSpecialText(Graphics2D graphics, Point txtLoc, String specialValueText, String ticksSinceSpecialText, Color color) {
+    public void RenderSpecialText(Graphics2D graphics, Point txtLoc, String specialValueText, String ticksSinceSpecialText, Color color, boolean lingeringTick) {
 
         int x = txtLoc.getX();
         int y = txtLoc.getY();
@@ -166,10 +167,18 @@ public class PartySpecialTrackerOverlay extends Overlay
         FontMetrics fm = graphics.getFontMetrics();
         int textWidth = fm.stringWidth(specialValueText);
 
-        graphics.setColor(Color.BLACK);
+        int alpha = 0xFF;
+        if(lingeringTick)
+        {
+            //following the last tick the text will linger and fade out
+            float tickPercentage = (client.getGameCycle() - plugin.getLastKnownGameCycle()) / 30f;
+            alpha = (int) (255 - (255 * tickPercentage));
+        }
+
+        graphics.setColor(ColorUtil.colorWithAlpha(Color.BLACK, alpha));
         graphics.drawString(ticksSinceSpecialText, x+textWidth+1, y+1);
 
-        graphics.setColor(ColorUtil.colorWithAlpha(Color.yellow, 0xFF));
+        graphics.setColor(ColorUtil.colorWithAlpha(Color.yellow, alpha));
         graphics.drawString(ticksSinceSpecialText, x+textWidth, y);
 
     }

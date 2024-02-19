@@ -114,6 +114,10 @@ public class PartySpecialTrackerPlugin extends Plugin
 
 	private final String DEFAULT_MEMBER_NAME = "<unknown>";
 
+	@Getter(AccessLevel.PACKAGE)
+	@Setter(AccessLevel.PACKAGE)
+	private int lastKnownGameCycle;
+
 	/*<|Cached Configs*/
 
 	int desiredSpecial,
@@ -339,6 +343,9 @@ public class PartySpecialTrackerPlugin extends Plugin
 	@Subscribe
 	public void onGameTick(GameTick event)
 	{
+		//save current cycle to determine duration into the current tick
+		lastKnownGameCycle = client.getGameCycle();
+
 		//increment members with active ticks
 		for (PartySpecialTrackerMember member : members.values())
 		{
