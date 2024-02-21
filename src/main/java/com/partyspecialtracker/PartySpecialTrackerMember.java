@@ -22,19 +22,45 @@
  * (INCLUDING NEGLIGENCE OR OTHERWISE) ARISING IN ANY WAY OUT OF THE USE OF THIS
  * SOFTWARE, EVEN IF ADVISED OF THE POSSIBILITY OF SUCH DAMAGE.
  */
-package com.example;
+package com.partyspecialtracker;
 
-import lombok.EqualsAndHashCode;
-import lombok.Value;
-import net.runelite.client.party.messages.PartyMemberMessage;
+import lombok.Getter;
+import lombok.RequiredArgsConstructor;
+import lombok.Setter;
 
 
-@Value
-@EqualsAndHashCode(callSuper = true)
-public class PartySpecialTrackerUpdate extends PartyMemberMessage
+@RequiredArgsConstructor
+@Getter
+@Setter
+class PartySpecialTrackerMember
 {
-    //we need realtime info, default party is delayed.
-    int currentSpecial;
-    //indicates special change was a drain not a regen.
-    boolean usedSpecial;
+    private final String name;
+    private long memberID;
+    private int currentSpecial;
+    private int ticksSinceDrain;
+
+    public PartySpecialTrackerMember(String name, long memberID, int currentSpecial){
+        this.name = name;
+        this.memberID = memberID;
+        this.currentSpecial = currentSpecial;
+        this.ticksSinceDrain = -1;
+    }
+
+    public int IncrementTicksSinceDrain(int maxTicks){
+        //increment count, disable after an additional lingering tick for fadeout purposes.
+        if(++this.ticksSinceDrain > (maxTicks+1)){
+            this.ticksSinceDrain = -1;
+        }
+        return ticksSinceDrain;
+    }
+
+    public boolean IsTrackingDrain(){
+        return ticksSinceDrain != -1;
+    }
+
+    public void StartTrackingDrain(){
+        ticksSinceDrain = 1;
+    }
+
+
 }

@@ -22,7 +22,7 @@
  * (INCLUDING NEGLIGENCE OR OTHERWISE) ARISING IN ANY WAY OUT OF THE USE OF THIS
  * SOFTWARE, EVEN IF ADVISED OF THE POSSIBILITY OF SUCH DAMAGE.
  */
-package com.example;
+package com.partyspecialtracker;
 
 import com.google.inject.Provides;
 
@@ -57,7 +57,7 @@ import net.runelite.client.ui.overlay.OverlayManager;
 import net.runelite.client.party.PartyService;
 import net.runelite.client.util.Text;
 
-import static com.example.PartySpecialTrackerConfig.TextRenderType;
+import static com.partyspecialtracker.PartySpecialTrackerConfig.TextRenderType;
 
 @PluginDescriptor(
 		name = "Party Special Tracker",
