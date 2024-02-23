@@ -44,15 +44,14 @@ import net.runelite.client.eventbus.Subscribe;
 import net.runelite.client.events.ConfigChanged;
 import net.runelite.client.events.PartyChanged;
 
-import net.runelite.client.events.RuneScapeProfileChanged;
 import net.runelite.client.party.WSClient;
-import net.runelite.client.party.events.UserJoin;
 import net.runelite.client.party.events.UserPart;
 import net.runelite.client.plugins.Plugin;
 import net.runelite.client.plugins.PluginDependency;
 import net.runelite.client.plugins.PluginDescriptor;
 import net.runelite.client.plugins.party.PartyPlugin;
 import net.runelite.client.plugins.party.PartyPluginService;
+import net.runelite.client.plugins.party.messages.StatusUpdate;
 import net.runelite.client.ui.overlay.OverlayManager;
 import net.runelite.client.party.PartyService;
 import net.runelite.client.util.Text;
@@ -96,14 +95,6 @@ public class PartySpecialTrackerPlugin extends Plugin
 
 	@Getter(AccessLevel.PACKAGE)
 	@Setter(AccessLevel.PACKAGE)
-	private int lastKnownSpecial = -1;
-
-	@Getter(AccessLevel.PACKAGE)
-	@Setter(AccessLevel.PACKAGE)
-	private boolean queuedUpdate = false;
-
-	@Getter(AccessLevel.PACKAGE)
-	@Setter(AccessLevel.PACKAGE)
 	private boolean usedSpecial = false;
 
 	/**
@@ -117,6 +108,10 @@ public class PartySpecialTrackerPlugin extends Plugin
 	@Getter(AccessLevel.PACKAGE)
 	@Setter(AccessLevel.PACKAGE)
 	private int lastKnownGameCycle;
+
+	@Getter(AccessLevel.PACKAGE)
+	@Setter(AccessLevel.PACKAGE)
+	private int lastSpecialVarbitThisTick = -1;
 
 	/*<|Cached Configs*/
 
@@ -155,18 +150,15 @@ public class PartySpecialTrackerPlugin extends Plugin
 	{
 		CacheConfigs();
 		overlayManager.add(partySpecialTrackerOverlay);
-		lastKnownSpecial = client.getLocalPlayer() != null ? (client.getVarpValue(VarPlayer.SPECIAL_ATTACK_PERCENT) / 10) : -1;
-		queuedUpdate = true;
+		lastSpecialVarbitThisTick = -1;
 		usedSpecial = false;
-		wsClient.registerMessage(PartySpecialTrackerUpdate.class);
-		wsClient.registerMessage(PartySpecialTrackerStopTracking.class);
+		wsClient.registerMessage(PartySpecialTrackerFringeConditionUpdate.class);
 	}
 
 	@Override
 	protected void shutDown()
 	{
-		wsClient.unregisterMessage(PartySpecialTrackerUpdate.class);
-		wsClient.unregisterMessage(PartySpecialTrackerStopTracking.class);
+		wsClient.unregisterMessage(PartySpecialTrackerFringeConditionUpdate.class);
 		overlayManager.remove(partySpecialTrackerOverlay);
 		members.clear();
 	}
@@ -178,25 +170,6 @@ public class PartySpecialTrackerPlugin extends Plugin
 	public void onPartyChanged(PartyChanged partyChanged)
 	{
 		members.clear();
-	}
-
-	/**
-	 * Member has joined local party, send them our information to sync them up
-	 */
-	@Subscribe
-	public void onUserJoin(final UserJoin message)
-	{
-		//when a user joins, request an update for the next registered game tick
-		queuedUpdate = true;
-	}
-
-	/**
-	 * local player has changed, requests an update
-	 */
-	@Subscribe
-	public void onRuneScapeProfileChanged(RuneScapeProfileChanged runeScapeProfileChanged)
-	{
-		queuedUpdate = true;
 	}
 
 	/**
@@ -234,7 +207,7 @@ public class PartySpecialTrackerPlugin extends Plugin
 	}
 
 	/**
-	 * Update Cache and additionally check if a players tracking has changed.
+	 * Update Cache
 	 */
 	@Subscribe
 	public void onConfigChanged(ConfigChanged configChanged)
@@ -245,21 +218,6 @@ public class PartySpecialTrackerPlugin extends Plugin
 		}
 
 		CacheConfigs();
-
-		if(configChanged.getKey().equals("trackMe")){
-			if(trackMe){
-				queuedUpdate = true;
-			}
-			else if (IsValidAndInParty())
-			{
-				//player has turned off tracking, tell other party members to remove them rather than rendering a non-updating party member.
-				String currentLocalUsername = GetLocalPlayerName();
-				if(members.containsKey(currentLocalUsername))
-				{
-					SendStopTracking(currentLocalUsername);
-				}
-			}
-		}
 
 	}
 
@@ -293,58 +251,60 @@ public class PartySpecialTrackerPlugin extends Plugin
 	}
 
 	/**
+	 * Received status update packet from party member.<br>
+	 * Verify packet isn't bad and update the party member in question
+	 */
+	@Subscribe
+	public void onStatusUpdate(final StatusUpdate event){
+
+		//two packets send on login, the first has false spec data and assumes the name is set when it can have changed.
+		//ignore the first invalid packet.
+		if(event.getCharacterName() == null && !partyService.getMemberById(event.getMemberId()).isLoggedIn())
+			return;
+
+		String name;
+		if((name = event.getCharacterName()) == null){
+			if((name = partyService.getMemberById(event.getMemberId()).getDisplayName()) == null)
+			{
+				return;
+			}
+		}
+
+		if(name.isEmpty()){
+			return;
+		}
+
+		if(event.getSpecEnergy() == null)
+			return;
+
+		UpdateMember(name,event);
+	}
+
+	/**
 	 * Received packet from party member.<br>
-	 * Run checks and attempt to update the given player in list of party members.<br>
-	 * The local player handles itself  to reduce latency.
+	 * Party members special has drained in fringe case, start tracking time<br>
 	 */
 	@Subscribe
-	public void onPartySpecialTrackerUpdate(PartySpecialTrackerUpdate packet)
+	public void onPartySpecialTrackerFringeConditionUpdate(PartySpecialTrackerFringeConditionUpdate packet)
 	{
-
-		if (partyService.getLocalMember().getMemberId() == packet.getMemberId())
-		{
-			return;
-		}
-
 		String name = partyService.getMemberById(packet.getMemberId()).getDisplayName();
 		if (name == null)
 		{
 			return;
 		}
 
-		UpdateMember(name,packet);
+		members.get(name).StartTrackingDrain();
 	}
 
 	/**
-	 * Received packet from party member to stop tracking it.<br>
-	 * The local player handles itself  to reduce latency.
-	 */
-	@Subscribe
-	public void onPartySpecialTrackerStopTracking(PartySpecialTrackerStopTracking packet)
-	{
-
-		if (partyService.getLocalMember().getMemberId() == packet.getMemberId())
-		{
-			return;
-		}
-
-		String name = partyService.getMemberById(packet.getMemberId()).getDisplayName();
-		if (name == null)
-		{
-			return;
-		}
-
-		members.remove(name);
-	}
-
-	/**
-	 * Increment active tick timers and send packet of local players special data to all party members
+	 * Increment active tick timers and send additional update packet if fringe condition is met.
 	 */
 	@Subscribe
 	public void onGameTick(GameTick event)
 	{
 		//save current cycle to determine duration into the current tick
 		lastKnownGameCycle = client.getGameCycle();
+		lastSpecialVarbitThisTick = -1;
 
 		//increment members with active ticks
 		for (PartySpecialTrackerMember member : members.values())
@@ -354,28 +314,26 @@ public class PartySpecialTrackerPlugin extends Plugin
 			member.IncrementTicksSinceDrain(tickDisplay);
 		}
 
-		//Check for local player update
-		if(!queuedUpdate)
-			return;
-
-		//an update has been requested, resync special
-		if (trackMe && IsValidAndInParty())
+		//Check for fringe case, occurs when xfer is recieved the same tick it's used
+		if(usedSpecial)
 		{
-			String currentLocalUsername = GetLocalPlayerName();
-			String partyName = partyService.getMemberById(partyService.getLocalMember().getMemberId()).getDisplayName();
-			//dont send unless the partyname has updated to the local name
-			if (currentLocalUsername != null && currentLocalUsername.equals(partyName))
+			usedSpecial = false;
+			if (trackMe && IsValidAndInParty())
 			{
-				SendUpdate(currentLocalUsername, lastKnownSpecial, usedSpecial);
-				queuedUpdate = false;
-				usedSpecial = false;
+				String currentLocalUsername = GetLocalPlayerName();
+				String partyName = partyService.getMemberById(partyService.getLocalMember().getMemberId()).getDisplayName();
+				//dont send unless the partyname has updated to the local name
+				if (currentLocalUsername != null && currentLocalUsername.equals(partyName))
+				{
+					SendFringeConditionUpdate();
+				}
 			}
 		}
 
 	}
 
 	/**
-	 * Watch special change events to request an update packet in the game tick
+	 * Watch special change events for double varbit change to request an update packet in the game tick
 	 */
 	@Subscribe
 	public void onVarbitChanged(VarbitChanged event)
@@ -394,76 +352,59 @@ public class PartySpecialTrackerPlugin extends Plugin
 		*/
 
 		int currentSpecial = event.getValue()/10;
-		if(currentSpecial < lastKnownSpecial)
+		if(currentSpecial < lastSpecialVarbitThisTick)
 		{
 			usedSpecial = true;
 		}
-		lastKnownSpecial = currentSpecial;
-		queuedUpdate = true;
+		lastSpecialVarbitThisTick = currentSpecial;
 	}
 
 	/**
-	 * Send a packet containing the new special data to all party members.
-	 * @param name Local players sanitized name
-	 * @param currentSpecial Special value after change
-	 * @param usedSpecial Flag indicating a special has been used, to differentiate between regen and drain
+	 * Send a packet informing party members a drain has occured in situation where it won't be picked up by status update<br>
+	 * Occurs when varbit changes twice in the same tick.
 	 */
-	public void SendUpdate(String name, int currentSpecial, boolean usedSpecial)
+	public void SendFringeConditionUpdate()
 	{
 		if(partyService.getLocalMember() != null)
 		{
-			PartySpecialTrackerUpdate packet = new PartySpecialTrackerUpdate(currentSpecial,usedSpecial);
+			PartySpecialTrackerFringeConditionUpdate packet = new PartySpecialTrackerFringeConditionUpdate();
 			partyService.send(packet);
-			//handle self locally.
-			UpdateMember(name,packet);
 		}
 	}
 
 	/**
-	 * Updates or adds player to the map of tracked party members. Only players opting in to be tracked will be within this list.
+	 * Updates or adds player to the map of tracked party members.
 	 * @param memberName Party member name, this is a sanitized Jagex name.
-	 * @param update Packet containing special amount and flag of special use
+	 * @param update Standard status packet
 	 */
-	void UpdateMember(String memberName, PartySpecialTrackerUpdate update)
+	void UpdateMember(String memberName, StatusUpdate update)
 	{
 		if(memberName.equals(DEFAULT_MEMBER_NAME))
 		{
 			return;
 		}
 
-		int currentSpecial = update.getCurrentSpecial();
+		int updatedSpecial = update.getSpecEnergy();
 		long memberID = update.getMemberId();
-		boolean usedSpecial = update.isUsedSpecial();
+		boolean memberUsedSpecial = false;
 
 		if(members.containsKey(memberName))
 		{
 			PartySpecialTrackerMember member = members.get(memberName);
 			member.setMemberID(memberID);
-			member.setCurrentSpecial(currentSpecial);
+			if(member.getCurrentSpecial() > updatedSpecial){
+				memberUsedSpecial = true;
+			}
+			member.setCurrentSpecial(updatedSpecial);
 		}else{
-			members.put(memberName, new PartySpecialTrackerMember(memberName, memberID, currentSpecial));
+			members.put(memberName, new PartySpecialTrackerMember(memberName, memberID, updatedSpecial));
 		}
 
-		if(usedSpecial)
+		if(memberUsedSpecial)
 		{
 			members.get(memberName).StartTrackingDrain();
 		}
 
-	}
-
-	/**
-	 * Send a packet informing all party members to stop tracking this local player.
-	 * @param name Local players sanitized name
-	 */
-	public void SendStopTracking(String name)
-	{
-		if(partyService.getLocalMember() != null)
-		{
-			PartySpecialTrackerStopTracking packet = new PartySpecialTrackerStopTracking();
-			partyService.send(packet);
-			//handle self locally.
-			members.remove(name);
-		}
 	}
 
 	/**
