@@ -37,6 +37,9 @@ public interface PartySpecialTrackerConfig extends Config
 	@ConfigSection(name="Text Overlay", description="text overlay settings", position=2, closedByDefault=true)
 	String textOverlay = "textOverlay";
 
+	@ConfigSection(name="Other", description="other settings", position=3, closedByDefault=true)
+	String otherOverlay = "other";
+
 	/*Visual Overlay*/
 	@ConfigItem(
 			position = 0,
@@ -211,6 +214,40 @@ public interface PartySpecialTrackerConfig extends Config
 	default boolean boldFont()
 	{
 		return true;
+	}
+
+	@ConfigItem(
+			keyName = "dimXfer",
+			name = "Dim Xfer",
+			description = "Makes spec transfer dimmer when below desired special",
+			position = 10,
+			section = otherOverlay
+	)
+	default boolean dimXfer()
+	{
+		return false;
+	}
+
+	@Range(max=100, min=0)
+	@ConfigItem(
+			keyName="desiredLocal",
+			name="Desired Local",
+			description="Desired local special attack to not dimmer",
+			position=11,
+			section = otherOverlay)
+	default int desiredLocal() {
+		return 100;
+	}
+
+	@Range(max=255, min=150)
+	@ConfigItem(
+			keyName="dimAmount",
+			name="Dim Amount",
+			description="How much to dim the energy transfer spell (150-255)",
+			position=12,
+			section = otherOverlay)
+	default int dimAmount() {
+		return 230;
 	}
 
 }

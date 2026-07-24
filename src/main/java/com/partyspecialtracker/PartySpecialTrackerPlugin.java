@@ -39,6 +39,8 @@ import lombok.extern.slf4j.Slf4j;
 
 import net.runelite.api.*;
 import net.runelite.api.events.*;
+import net.runelite.api.widgets.Widget;
+import net.runelite.client.callback.ClientThread;
 import net.runelite.client.config.ConfigManager;
 import net.runelite.client.eventbus.Subscribe;
 import net.runelite.client.events.ConfigChanged;
@@ -90,6 +92,9 @@ public class PartySpecialTrackerPlugin extends Plugin
 	@Inject
 	private WSClient wsClient;
 
+	@Inject
+	private ClientThread clientThread;
+
 	@Getter(AccessLevel.PACKAGE)
 	private final Map<String, PartySpecialTrackerMember> members = new ConcurrentHashMap<>();
 
@@ -121,7 +126,9 @@ public class PartySpecialTrackerPlugin extends Plugin
 			offSetTextVertical,
 			offSetTextZ,
 			offSetStackVertical,
-			fontSize;
+			fontSize,
+			desiredLocal,
+			dimAmount;
 
 
 	Color standardColor,
@@ -132,12 +139,16 @@ public class PartySpecialTrackerPlugin extends Plugin
 			showAsTracker,
 			drawPercentByName,
 			drawParentheses,
-			boldFont;
+			boldFont,
+			dimXfer;
 
 	TextRenderType nameRender,
 			specRender;
 
 	/*Cached Configs|>*/
+
+	final int ENERGY_TRANSFER_ID = 32;
+	final int LUNAR_SPELLBOOK_ID = 1984;
 
 	@Provides
 	PartySpecialTrackerConfig provideConfig(ConfigManager configManager)
@@ -219,6 +230,18 @@ public class PartySpecialTrackerPlugin extends Plugin
 
 		CacheConfigs();
 
+		String key = configChanged.getKey();
+
+		if(key.equals("desiredLocal") || key.equals("dimXfer") || key.equals("dimAmount")){
+			clientThread.invokeLater(() -> {
+				ClearEnergyTransferDim();
+				if(dimXfer)
+				{
+					DimEnergyTransfer();
+				}
+			});
+		}
+
 	}
 
 	/**
@@ -234,6 +257,8 @@ public class PartySpecialTrackerPlugin extends Plugin
 		offSetTextZ = config.offSetTextZ();
 		offSetStackVertical = config.offSetStackVertical();
 		fontSize = config.fontSize();
+		desiredLocal = config.desiredLocal();
+		dimAmount = config.dimAmount();
 
 		standardColor = config.getStandardColor();
 		lowColor = config.getLowColor();
@@ -243,6 +268,7 @@ public class PartySpecialTrackerPlugin extends Plugin
 		drawPercentByName = config.drawPercentByName();
 		drawParentheses = config.drawParentheses();
 		boldFont = config.boldFont();
+		dimXfer = config.dimXfer();
 
 		nameRender = config.nameRender();
 		specRender = config.specRender();
@@ -357,7 +383,56 @@ public class PartySpecialTrackerPlugin extends Plugin
 			usedSpecial = true;
 		}
 		lastSpecialVarbitThisTick = currentSpecial;
+
+		if(dimXfer){
+			if(currentSpecial >= desiredLocal){
+				ClearEnergyTransferDim();
+			}else{
+				DimEnergyTransfer();
+			}
+		}
+
 	}
+
+	/** Occurs on redraw/load
+	 * dims spec xfer icon if below desired*/
+	@Subscribe
+	public void onScriptCallbackEvent(ScriptCallbackEvent event)
+	{
+		if (!"spellbookSort".equals(event.getEventName()))
+		{
+			return;
+		}
+
+		if(!dimXfer)
+			return;
+
+		DimEnergyTransfer();
+	}
+
+	void DimEnergyTransfer(){
+
+		int special = client.getVarpValue(VarPlayer.SPECIAL_ATTACK_PERCENT)/10;
+		if(special >= desiredLocal)
+			return;
+
+		EnumComposition spellbookEnum = client.getEnum(LUNAR_SPELLBOOK_ID);
+		ItemComposition spellObj = client.getItemDefinition(spellbookEnum.getIntValue(ENERGY_TRANSFER_ID));
+		Widget w = client.getWidget(spellObj.getIntValue(ParamID.SPELL_BUTTON));
+		if(w != null && w.getName().contains("Energy Transfer")){
+			w.setOpacity(dimAmount);
+		}
+	}
+
+	void ClearEnergyTransferDim(){
+		EnumComposition spellbookEnum = client.getEnum(LUNAR_SPELLBOOK_ID);
+		ItemComposition spellObj = client.getItemDefinition(spellbookEnum.getIntValue(ENERGY_TRANSFER_ID));
+		Widget w = client.getWidget(spellObj.getIntValue(ParamID.SPELL_BUTTON));
+		if(w != null && w.getName().contains("Energy Transfer")){
+			w.setOpacity(0);
+		}
+	}
+
 
 	/**
 	 * Send a packet informing party members a drain has occured in situation where it won't be picked up by status update<br>
