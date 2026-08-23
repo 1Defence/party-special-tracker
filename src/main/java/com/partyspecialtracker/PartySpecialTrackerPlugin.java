@@ -525,7 +525,7 @@ public class PartySpecialTrackerPlugin extends Plugin
 	{
 		if(!members.containsKey(sanitizedName))
 			return false;
-		return visiblePlayers.isEmpty() || visiblePlayers.contains(sanitizedName.toLowerCase());
+		return visiblePlayers.isEmpty() || (visiblePlayers.contains(sanitizedName.toLowerCase()) == !config.inversePlayerList());
 	}
 
 	/**

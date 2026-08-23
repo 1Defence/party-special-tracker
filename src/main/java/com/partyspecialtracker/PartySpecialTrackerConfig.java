@@ -78,6 +78,14 @@ public interface PartySpecialTrackerConfig extends Config
 
 	@ConfigItem(
 			position = 3,
+			keyName = "inversePlayerList",
+			name = "Inverse Player List",
+			description = "Only names NOT listed will have visuals shown, if list is empty all connected party members will show up",
+			section = visualOverlay)
+	default boolean inversePlayerList() { return false; }
+
+	@ConfigItem(
+			position = 4,
 			keyName = "desiredSpecial",
 			name = "Desired Special",
 			description = "The desired special energy amount",
@@ -87,7 +95,7 @@ public interface PartySpecialTrackerConfig extends Config
 
 
 	@ConfigItem(
-			position = 4,
+			position = 5,
 			keyName = "standardColor",
 			name = "Standard Color",
 			description = "The Color when party member has desired special energy",
@@ -99,7 +107,7 @@ public interface PartySpecialTrackerConfig extends Config
 	}
 
 	@ConfigItem(
-			position = 5,
+			position = 6,
 			keyName = "lowColor",
 			name = "Low Color",
 			description = "The Color when party member has less than desired special energy",
@@ -111,7 +119,7 @@ public interface PartySpecialTrackerConfig extends Config
 	}
 
 	@ConfigItem(
-			position = 6,
+			position = 7,
 			keyName = "tickDisplay",
 			name = "Tick Display",
 			description = "How many ticks to display after special has been used, 0 to disable",
