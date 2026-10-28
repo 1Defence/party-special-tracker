@@ -53,7 +53,7 @@ import net.runelite.client.plugins.PluginDependency;
 import net.runelite.client.plugins.PluginDescriptor;
 import net.runelite.client.plugins.party.PartyPlugin;
 import net.runelite.client.plugins.party.PartyPluginService;
-import net.runelite.client.plugins.party.messages.StatusUpdate;
+import net.runelite.client.party.messages.PartyData;
 import net.runelite.client.ui.overlay.OverlayManager;
 import net.runelite.client.party.PartyService;
 import net.runelite.client.util.Text;
@@ -281,29 +281,21 @@ public class PartySpecialTrackerPlugin extends Plugin
 	 * Verify packet isn't bad and update the party member in question
 	 */
 	@Subscribe
-	public void onStatusUpdate(final StatusUpdate event){
+	public void onPartyData(final PartyData message){
 
 		//two packets send on login, the first has false spec data and assumes the name is set when it can have changed.
 		//ignore the first invalid packet.
-		if(event.getCharacterName() == null && !partyService.getMemberById(event.getMemberId()).isLoggedIn())
-			return;
 
-		String name;
-		if((name = event.getCharacterName()) == null){
-			if((name = partyService.getMemberById(event.getMemberId()).getDisplayName()) == null)
-			{
-				return;
-			}
-		}
+		long updateId = message.getMemberId();
 
-		if(name.isEmpty()){
+		String name = partyService.getMemberById(updateId).getDisplayName();
+		if (name.equals(DEFAULT_MEMBER_NAME)) {
 			return;
 		}
-
-		if(event.getSpecEnergy() == null)
+		if(!partyService.getMemberById(message.getMemberId()).isLoggedIn())
 			return;
 
-		UpdateMember(name,event);
+		UpdateMember(name,message);
 	}
 
 	/**
@@ -452,12 +444,10 @@ public class PartySpecialTrackerPlugin extends Plugin
 	 * @param memberName Party member name, this is a sanitized Jagex name.
 	 * @param update Standard status packet
 	 */
-	void UpdateMember(String memberName, StatusUpdate update)
+	void UpdateMember(String memberName, PartyData update)
 	{
-		if(memberName.equals(DEFAULT_MEMBER_NAME))
-		{
+		if(update.getSpecEnergy() == null)
 			return;
-		}
 
 		int updatedSpecial = update.getSpecEnergy();
 		long memberID = update.getMemberId();
